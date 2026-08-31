@@ -1,0 +1,631 @@
+<!doctype html>
+<html lang="en" dir="ltr" data-theme="purple">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <link rel="stylesheet" href="style.css" />
+    <title>Task Report</title>
+  </head>
+  <body class="neon">
+    <svg class="neon-border">
+      <rect
+        x="0"
+        y="0"
+        width="100%"
+        height="100%"
+        rx="12"
+        ry="12"
+        pathLength="100"
+      />
+    </svg>
+    <div class="container">
+      <h1>Task Report</h1>
+      <p class="subtitle">
+        baraye har fard tedad anjam har task ro sabt kon . etela'at khodkar to
+        browser sabt mishe . ba dokme ha ham mitoni file jason backup bgiri ya
+        restor anjam bdi. <br />
+        <b
+          >attention : ba clear kardan cash ya data browser etela'at ham mipare
+          , hatman har rooz backup bgir</b
+        >
+      </p>
+
+      <div class="toolbar edit-only">
+        <input type="text" id="newName" placeholder="New Rider's name..." />
+        <button class="btn-add" id="addBtn">Add Rider</button>
+        <button class="btn-secondary" id="exportBtn">📥 Export File</button>
+        <button class="btn-secondary" id="importBtn">📤 Import File</button>
+        <input type="file" id="importFile" accept="application/json" />
+      </div>
+
+      <div class="toolbar secondary">
+        <button class="btn-secondary" id="sortBtn">↕ Sort: Score</button>
+        <button class="btn-secondary" id="weeklyBtn">📊 Weekly View</button>
+        <button class="btn-secondary edit-only" id="newWeekBtn">
+          🗓️ New Week
+        </button>
+        <button class="btn-secondary edit-only" id="historyBtn">
+          📜 History
+        </button>
+        <button class="btn-secondary" id="imageBtn">🖼️ Export Image</button>
+        <div class="theme-picker">
+          <button class="theme-dot" data-theme="purple" title="Purple"></button>
+          <!-- <button class="theme-dot" data-theme="blue" title="Blue"></button>
+      <button class="theme-dot" data-theme="green" title="Green"></button>
+      <button class="theme-dot" data-theme="red" title="Red"></button> -->
+          <button class="theme-dot" data-theme="mono" title="Mono"></button>
+        </div>
+      </div>
+
+      <div class="search-row edit-only">
+        <input type="text" id="searchName" placeholder="🔍 Search Rider..." />
+      </div>
+
+      <div class="main-grid">
+        <div class="table-wrap">
+          <table id="dataTable">
+            <thead class="neon">
+              <tr class="neon">
+                <th style="text-align: left; padding-left: 16px">Rider</th>
+                <th>Traffic Stop</th>
+                <th>Serghat Az Amval Omomi</th>
+                <th>Car Pursuit</th>
+                <th>Motorcycle Pursuit</th>
+                <th>Total Points</th>
+                <th class="edit-only"></th>
+              </tr>
+            </thead>
+            <tbody id="tableBody"></tbody>
+          </table>
+        </div>
+
+        <div class="log-panel edit-only">
+          <div class="log-header">📝 Activity Log</div>
+          <div class="log-list" id="logList"></div>
+        </div>
+      </div>
+
+      <div id="emptyState" class="empty-state" style="display: none">
+        No one added yet. Enter a name and click "Add Rider".
+      </div>
+
+      <div class="status" id="status"></div>
+
+      <div class="history-panel" id="historyPanel">
+        <h2>📜 Weekly History</h2>
+        <div id="historyContent"></div>
+      </div>
+    </div>
+
+    <script>
+      const TASKS = ["T", "S", "C", "M"];
+      const TASK_LABELS = {
+        T: "Traffic Stop",
+        S: "Serghat Az Amval Omomi",
+        C: "Car Pursuit",
+        M: "Motorcycle Pursuit",
+      };
+      const WEIGHTS = { T: 1, S: 2, C: 2, M: 4 };
+      const MEDALS = ["🥇", "🥈", "🥉"];
+      const STORAGE_KEY = "daily_task_report_data";
+
+      let state = { tasks: TASKS, people: {}, history: [], log: [] };
+      let searchQuery = "";
+      let sortMode = "score"; // "score" or "name"
+      let weeklyMode = false;
+      let historyOpen = false;
+      const THEME_KEY = "daily_task_report_theme";
+      const MAX_LOG_ENTRIES = 200;
+
+      function addLog(text, type) {
+        state.log = state.log || [];
+        state.log.unshift({ text, type, time: new Date().toISOString() });
+        if (state.log.length > MAX_LOG_ENTRIES)
+          state.log.length = MAX_LOG_ENTRIES;
+        renderLog();
+      }
+
+      function formatLogTime(iso) {
+        const d = new Date(iso);
+        return d.toLocaleString(undefined, {
+          month: "short",
+          day: "numeric",
+          hour: "2-digit",
+          minute: "2-digit",
+        });
+      }
+
+      function renderLog() {
+        const listEl = document.getElementById("logList");
+        if (!listEl) return;
+        const entries = state.log || [];
+        if (entries.length === 0) {
+          listEl.innerHTML = '<div class="log-empty">No activity yet.</div>';
+          return;
+        }
+        listEl.innerHTML = "";
+        entries.forEach((entry) => {
+          const div = document.createElement("div");
+          div.className =
+            "log-entry" + (entry.type ? " " + entry.type + "-type" : "");
+          div.innerHTML = `${entry.text}<span class="log-time">${formatLogTime(entry.time)}</span>`;
+          listEl.appendChild(div);
+        });
+      }
+
+      function applyTheme(theme) {
+        document.documentElement.setAttribute("data-theme", theme);
+        localStorage.setItem(THEME_KEY, theme);
+        document.querySelectorAll(".theme-dot").forEach((dot) => {
+          dot.classList.toggle("active", dot.dataset.theme === theme);
+        });
+      }
+
+      function loadTheme() {
+        const saved = localStorage.getItem(THEME_KEY) || "purple";
+        applyTheme(saved);
+      }
+
+      function calcTotal(counts) {
+        return TASKS.reduce(
+          (sum, task) => sum + (counts[task] ?? 0) * WEIGHTS[task],
+          0,
+        );
+      }
+
+      function loadFromStorage() {
+        const raw = localStorage.getItem(STORAGE_KEY);
+        if (raw) {
+          try {
+            const parsed = JSON.parse(raw);
+            state = {
+              tasks: TASKS,
+              people: parsed.people || {},
+              history: parsed.history || [],
+              log: parsed.log || [],
+            };
+          } catch (e) {
+            state = { tasks: TASKS, people: {}, history: [], log: [] };
+          }
+        }
+        renderLog();
+      }
+
+      function saveToStorage() {
+        localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+        const statusEl = document.getElementById("status");
+        statusEl.textContent = "Saved ✓";
+        statusEl.classList.add("saved");
+        clearTimeout(saveToStorage._t);
+        saveToStorage._t = setTimeout(() => {
+          statusEl.textContent = "";
+          statusEl.classList.remove("saved");
+        }, 1500);
+      }
+
+      function getSortedNames(names) {
+        const copy = [...names];
+        if (sortMode === "score") {
+          copy.sort(
+            (a, b) => calcTotal(state.people[b]) - calcTotal(state.people[a]),
+          );
+        } else {
+          copy.sort((a, b) => a.localeCompare(b));
+        }
+        return copy;
+      }
+
+      function render() {
+        const tbody = document.getElementById("tableBody");
+        const emptyState = document.getElementById("emptyState");
+        const allNames = Object.keys(state.people);
+        let names = weeklyMode
+          ? allNames.filter((n) => calcTotal(state.people[n]) > 0)
+          : searchQuery
+            ? allNames.filter((n) =>
+                n.toLowerCase().includes(searchQuery.toLowerCase()),
+              )
+            : allNames;
+        names = getSortedNames(names);
+
+        tbody.innerHTML = "";
+        if (allNames.length === 0) {
+          emptyState.style.display = "block";
+          emptyState.textContent =
+            'No one added yet. Enter a name and click "Add Person".';
+        } else if (names.length === 0) {
+          emptyState.style.display = "block";
+          emptyState.textContent = "No one found with that name.";
+        } else {
+          emptyState.style.display = "none";
+        }
+
+        const topScore = names.length ? calcTotal(state.people[names[0]]) : -1;
+
+        names.forEach((name, idx) => {
+          const tr = document.createElement("tr");
+          const total = calcTotal(state.people[name]);
+          let medal = "";
+          if (sortMode === "score" && total > 0 && idx < 3) {
+            medal = MEDALS[idx] + " ";
+            tr.classList.add("rank-" + (idx + 1));
+          }
+
+          const nameTd = document.createElement("td");
+          nameTd.className = "name-cell";
+          nameTd.textContent = medal + name;
+          tr.appendChild(nameTd);
+
+          TASKS.forEach((task) => {
+            const td = document.createElement("td");
+            if (weeklyMode) {
+              const val = document.createElement("span");
+              val.className = "value-readonly";
+              val.textContent = state.people[name][task] ?? 0;
+              td.appendChild(val);
+            } else {
+              const wrap = document.createElement("div");
+              wrap.className = "counter";
+
+              const minus = document.createElement("button");
+              minus.className = "minus";
+              minus.textContent = "−";
+              minus.onclick = () => changeCount(name, task, -1);
+
+              const val = document.createElement("span");
+              val.className = "value";
+              val.textContent = state.people[name][task] ?? 0;
+
+              const plus = document.createElement("button");
+              plus.className = "plus";
+              plus.textContent = "+";
+              plus.onclick = () => changeCount(name, task, 1);
+
+              wrap.appendChild(minus);
+              wrap.appendChild(val);
+              wrap.appendChild(plus);
+              td.appendChild(wrap);
+            }
+            tr.appendChild(td);
+          });
+
+          const totalTd = document.createElement("td");
+          totalTd.className = "total-cell";
+          totalTd.textContent = total;
+          tr.appendChild(totalTd);
+
+          if (!weeklyMode) {
+            const removeTd = document.createElement("td");
+            removeTd.className = "edit-only";
+
+            const actionsWrap = document.createElement("div");
+            actionsWrap.style.display = "flex";
+            actionsWrap.style.gap = "4px";
+            actionsWrap.style.justifyContent = "center";
+
+            const renameBtn = document.createElement("button");
+            renameBtn.className = "remove-btn";
+            renameBtn.textContent = "✎";
+            renameBtn.title = "Rename";
+            renameBtn.onclick = () => renamePerson(name);
+
+            const removeBtn = document.createElement("button");
+            removeBtn.className = "remove-btn";
+            removeBtn.textContent = "✕";
+            removeBtn.title = "Remove";
+            removeBtn.onclick = () => removePerson(name);
+
+            actionsWrap.appendChild(renameBtn);
+            actionsWrap.appendChild(removeBtn);
+            removeTd.appendChild(actionsWrap);
+            tr.appendChild(removeTd);
+          } else {
+            const emptyTd = document.createElement("td");
+            emptyTd.className = "edit-only";
+            tr.appendChild(emptyTd);
+          }
+
+          tbody.appendChild(tr);
+        });
+      }
+
+      function changeCount(name, task, delta) {
+        const current = state.people[name][task] ?? 0;
+        const next = Math.max(0, current + delta);
+        if (next === current) return;
+        state.people[name][task] = next;
+        const label = TASK_LABELS[task] || task;
+        const verb = next > current ? "gained +1" : "lost -1";
+        addLog(
+          `<strong>${name}</strong> ${verb} <em>${label}</em> (now ${next})`,
+          next > current ? "add" : "remove",
+        );
+        render();
+        saveToStorage();
+      }
+
+      function addPerson() {
+        const input = document.getElementById("newName");
+        const name = input.value.trim();
+        if (!name || state.people[name]) {
+          input.value = "";
+          return;
+        }
+        state.people[name] = { T: 0, S: 0, C: 0, M: 0 };
+        input.value = "";
+        addLog(
+          `<strong>${name}</strong> was Joind to the Mary Division`,
+          "add",
+        );
+        render();
+        saveToStorage();
+      }
+
+      function removePerson(name) {
+        delete state.people[name];
+        addLog(
+          `<strong>${name}</strong> was Removed from Mary Division`,
+          "remove",
+        );
+        render();
+        saveToStorage();
+      }
+      function renamePerson(oldName) {
+        const newName = prompt("Rename rider:", oldName);
+        if (newName === null) return;
+        const trimmed = newName.trim();
+        if (!trimmed || trimmed === oldName) return;
+        if (state.people[trimmed]) {
+          alert("A rider with that name already exists.");
+          return;
+        }
+        state.people[trimmed] = state.people[oldName];
+        delete state.people[oldName];
+        addLog(
+          `<strong>${oldName}</strong> was renamed to <strong>${trimmed}</strong>`,
+          "add",
+        );
+        render();
+        saveToStorage();
+      }
+
+      function exportData() {
+        const blob = new Blob([JSON.stringify(state, null, 2)], {
+          type: "application/json",
+        });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement("a");
+        const date = new Date().toISOString().slice(0, 10);
+        a.href = url;
+        a.download = `daily-report-${date}.json`;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        URL.revokeObjectURL(url);
+      }
+
+      function importData(file) {
+        const reader = new FileReader();
+        reader.onload = (e) => {
+          try {
+            const parsed = JSON.parse(e.target.result);
+            if (parsed && typeof parsed.people === "object") {
+              state = {
+                tasks: TASKS,
+                people: parsed.people,
+                history: parsed.history || [],
+                log: parsed.log || [],
+              };
+              render();
+              saveToStorage();
+              renderHistory();
+              renderLog();
+            } else {
+              alert("Invalid file.");
+            }
+          } catch (err) {
+            alert("Error reading file: " + err.message);
+          }
+        };
+        reader.readAsText(file);
+      }
+
+      function toggleSort() {
+        sortMode = sortMode === "score" ? "name" : "score";
+        document.getElementById("sortBtn").textContent =
+          sortMode === "score" ? "↕ Sort: Score" : "↕ Sort: Name";
+        render();
+      }
+
+      function toggleWeeklyMode() {
+        weeklyMode = !weeklyMode;
+        document.body.classList.toggle("weekly-mode", weeklyMode);
+        const btn = document.getElementById("weeklyBtn");
+        btn.textContent = weeklyMode ? "✖ Exit Weekly View" : "📊 Weekly View";
+        btn.classList.toggle("active", weeklyMode);
+        if (weeklyMode) {
+          sortMode = "score";
+          document.getElementById("sortBtn").textContent = "↕ Sort: Score";
+          if (historyOpen) toggleHistory();
+        }
+        render();
+      }
+
+      function startNewWeek() {
+        const names = Object.keys(state.people);
+        if (names.length === 0) {
+          alert("No one to archive yet.");
+          return;
+        }
+
+        const defaultDate = new Date().toISOString().slice(0, 10);
+        const weekDate = prompt(
+          "Enter the date for this week (YYYY-MM-DD):",
+          defaultDate,
+        );
+        if (weekDate === null) return;
+
+        const weekLabel = prompt(
+          "Optional: give this week a name/label (leave blank to just use the date):",
+          "",
+        );
+        if (weekLabel === null) return;
+
+        const confirmed = confirm(
+          "This will archive the current scores into history and reset everyone's counts to 0. Continue?",
+        );
+        if (!confirmed) return;
+
+        const snapshot = {};
+        names.forEach((name) => {
+          snapshot[name] = { ...state.people[name] };
+        });
+        state.history = state.history || [];
+        state.history.unshift({
+          date: weekDate.trim() || defaultDate,
+          label: weekLabel ? weekLabel.trim() : "",
+          people: snapshot,
+        });
+
+        names.forEach((name) => {
+          state.people[name] = { T: 0, S: 0, C: 0, M: 0 };
+        });
+
+        render();
+        saveToStorage();
+        renderHistory();
+      }
+
+      function renderHistory() {
+        const content = document.getElementById("historyContent");
+        content.innerHTML = "";
+        const history = state.history || [];
+        if (history.length === 0) {
+          content.innerHTML =
+            '<div class="history-empty">Hanoz hafte ei sabt Nashode! , baraye Archive kardan emtiazat feli «New Week» click kon ta sabt beshe. </div>';
+          return;
+        }
+        history.forEach((week) => {
+          const details = document.createElement("details");
+          details.className = "history-week";
+          const summary = document.createElement("summary");
+          summary.textContent = week.label
+            ? `${week.label} — ${week.date} (${Object.keys(week.people).length} people)`
+            : `Week ending ${week.date} (${Object.keys(week.people).length} people)`;
+          details.appendChild(summary);
+
+          const body = document.createElement("div");
+          body.className = "history-week-body";
+
+          const sortedNames = Object.keys(week.people).sort(
+            (a, b) => calcTotal(week.people[b]) - calcTotal(week.people[a]),
+          );
+          sortedNames.forEach((name, idx) => {
+            const row = document.createElement("div");
+            row.className = "history-row";
+            const nameSpan = document.createElement("span");
+            nameSpan.className = "hname";
+            nameSpan.textContent = (idx === 0 ? "🏆 " : "") + name;
+            const scoreSpan = document.createElement("span");
+            scoreSpan.className = "hscore";
+            scoreSpan.textContent = calcTotal(week.people[name]);
+            row.appendChild(nameSpan);
+            row.appendChild(scoreSpan);
+            body.appendChild(row);
+          });
+
+          details.appendChild(body);
+          content.appendChild(details);
+        });
+      }
+
+      function toggleHistory() {
+        historyOpen = !historyOpen;
+        document
+          .getElementById("historyPanel")
+          .classList.toggle("open", historyOpen);
+        if (historyOpen) renderHistory();
+      }
+
+      document.getElementById("addBtn").addEventListener("click", addPerson);
+      document.getElementById("newName").addEventListener("keydown", (e) => {
+        if (e.key === "Enter") addPerson();
+      });
+      document.getElementById("searchName").addEventListener("input", (e) => {
+        searchQuery = e.target.value.trim();
+        render();
+      });
+      document
+        .getElementById("exportBtn")
+        .addEventListener("click", exportData);
+      document.getElementById("importBtn").addEventListener("click", () => {
+        document.getElementById("importFile").click();
+      });
+      document.getElementById("importFile").addEventListener("change", (e) => {
+        const file = e.target.files[0];
+        if (file) importData(file);
+        e.target.value = "";
+      });
+      document.getElementById("sortBtn").addEventListener("click", toggleSort);
+      document
+        .getElementById("weeklyBtn")
+        .addEventListener("click", toggleWeeklyMode);
+      document
+        .getElementById("newWeekBtn")
+        .addEventListener("click", startNewWeek);
+      document
+        .getElementById("historyBtn")
+        .addEventListener("click", toggleHistory);
+      document
+        .getElementById("imageBtn")
+        .addEventListener("click", exportImage);
+
+      async function exportImage() {
+        const btn = document.getElementById("imageBtn");
+        const originalText = btn.textContent;
+        btn.textContent = "Generating...";
+        btn.disabled = true;
+
+        const tableWrap = document.querySelector(".table-wrap");
+        const prevMaxHeight = tableWrap.style.maxHeight;
+        const prevOverflow = tableWrap.style.overflowY;
+        tableWrap.style.maxHeight = "none";
+        tableWrap.style.overflowY = "visible";
+
+        try {
+          const canvas = await html2canvas(tableWrap, {
+            backgroundColor: "#1e293b",
+            scale: 2,
+          });
+          canvas.toBlob((blob) => {
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement("a");
+            const date = new Date().toISOString().slice(0, 10);
+            a.href = url;
+            a.download = `daily-report-${date}.png`;
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+            URL.revokeObjectURL(url);
+          });
+        } catch (err) {
+          alert("Could not generate image: " + err.message);
+        } finally {
+          tableWrap.style.maxHeight = prevMaxHeight;
+          tableWrap.style.overflowY = prevOverflow;
+          btn.textContent = originalText;
+          btn.disabled = false;
+        }
+      }
+
+      document.querySelectorAll(".theme-dot").forEach((dot) => {
+        dot.addEventListener("click", () => applyTheme(dot.dataset.theme));
+      });
+
+      loadTheme();
+      loadFromStorage();
+      render();
+    </script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
+  </body>
+</html>
